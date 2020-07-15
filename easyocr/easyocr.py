@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from .detection import get_detector, get_textbox
+from .detection import get_detector, get_textbox, get_textbox_batch
 from .imgproc import loadImage
 from .recognition import get_recognizer, get_text
 from .utils import group_text_box, get_image_list, calculate_md5, eprint
+from .datautils import MyDataset
 import numpy as np
 import cv2
 import torch
+import urllib.request
 import os
 import sys
 
@@ -16,7 +18,7 @@ if sys.version_info[0] == 2:
     from pathlib2 import Path
 else:
     from urllib.request import urlretrieve
-    from pathlib import Path
+from pathlib import Path
 
 BASE_PATH = os.path.dirname(__file__)
 MODULE_PATH = os.environ.get("MODULE_PATH",
@@ -252,3 +254,40 @@ class Reader(object):
             return [item[1] for item in result]
         else:
             return result
+
+
+    def get_textbox_test(self, image, decoder = 'greedy', beamWidth= 5, batch_size = 1,\
+                 text_threshold = 0.7, low_text = 0.4, link_threshold = 0.4,\
+                 canvas_size = 2560, mag_ratio = 1., poly = False,\
+                 contrast_ths = 0.1,adjust_contrast = 0.5, filter_ths = 0.003,\
+                 workers = 0, allowlist = None, blocklist = None, detail = 1):
+        if type(image) == str:
+            img = loadImage(image)
+            img_cv_grey = cv2.imread(image, cv2.IMREAD_GRAYSCALE)
+        elif type(image) == bytes:
+            nparr = np.frombuffer(image, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_cv_grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        elif type(image) == np.ndarray:
+            img = image
+            img_cv_grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        text_box = get_textbox(self.detector, img, canvas_size, mag_ratio, text_threshold,\
+                               link_threshold, low_text, poly, self.device)
+
+        return text_box
+
+
+    def get_textbox_batch_test(self, image_path, decoder = 'greedy', beamWidth= 5, batch_size = 2,\
+        text_threshold = 0.7, low_text = 0.4, link_threshold = 0.4,\
+                 canvas_size = 2560, mag_ratio = 1., poly = False,
+                 contrast_ths = 0.1,adjust_contrast = 0.5, filter_ths = 0.003,\
+                 workers = 0, whitelist = None, blacklist = None):
+
+        dataset = MyDataset(image_path)
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=workers)
+        y_preds = get_textbox_batch(self.detector, data_loader, text_threshold, link_threshold, low_text, poly, self.device)
+
+        return y_preds

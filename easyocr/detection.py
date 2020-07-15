@@ -3,6 +3,9 @@ import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 from PIL import Image
 from collections import OrderedDict
+from tqdm.auto import tqdm
+from apex.fp16_utils import *
+from apex import amp
 
 import cv2
 import numpy as np
@@ -21,6 +24,7 @@ def copyStateDict(state_dict):
         new_state_dict[name] = v
     return new_state_dict
 
+
 def test_net(canvas_size, mag_ratio, net, image, text_threshold, link_threshold, low_text, poly, device):
     # resize
     img_resized, target_ratio, size_heatmap = resize_aspect_ratio(image, canvas_size,\
@@ -38,8 +42,8 @@ def test_net(canvas_size, mag_ratio, net, image, text_threshold, link_threshold,
         y, feature = net(x)
 
     # make score and link map
-    score_text = y[0,:,:,0].cpu().data.numpy()
-    score_link = y[0,:,:,1].cpu().data.numpy()
+    score_text = y[0,:,:,0].cpu().data.numpy().astype(np.float32)
+    score_link = y[0,:,:,1].cpu().data.numpy().astype(np.float32)
 
     # Post-processing
     boxes, polys = getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, poly)
@@ -58,12 +62,14 @@ def get_detector(trained_model, device='cpu'):
     if device == 'cpu':
         net.load_state_dict(copyStateDict(torch.load(trained_model, map_location=device)))
     else:
+        net = net.cuda()
+        net = amp.initialize(net)
         net.load_state_dict(copyStateDict(torch.load(trained_model, map_location=device)))
-        net = torch.nn.DataParallel(net).to(device)
-        cudnn.benchmark = False
-
+        # net = torch.nn.DataParallel(net)
+        # cudnn.benchmark = True
     net.eval()
     return net
+
 
 def get_textbox(detector, image, canvas_size, mag_ratio, text_threshold, link_threshold, low_text, poly, device):
     result = []
@@ -74,3 +80,16 @@ def get_textbox(detector, image, canvas_size, mag_ratio, text_threshold, link_th
         result.append(poly)
 
     return result
+
+def get_textbox_batch(net, data_loader, text_threshold, link_threshold, low_text, poly, device):
+    
+    y_preds = []
+
+    with torch.no_grad():
+        for i, (img) in enumerate(tqdm(data_loader)):
+            image = img.to(device)
+            y, feature = net(image)
+            y_pred = y.detach().cpu().numpy().reshape(-1).tolist()
+            y_preds.append(y_pred)
+
+    return y_preds

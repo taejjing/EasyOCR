@@ -1,4 +1,5 @@
 from PIL import Image
+from apex import amp
 import torch
 import torch.backends.cudnn as cudnn
 import torch.utils.data
@@ -7,7 +8,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import numpy as np
 from collections import OrderedDict
-
+import time
 from .model import Model
 from .utils import CTCLabelConverter
 import math
@@ -157,8 +158,11 @@ def get_recognizer(input_channel, output_channel, hidden_size, character,\
             new_state_dict[new_key] = value
         model.load_state_dict(new_state_dict)
     else:
-        model = torch.nn.DataParallel(model).to(device)
+        # model = model.cuda()
+        # model = amp.initialize(model)
+        model = torch.nn.DataParallel(model).cuda()
         model.load_state_dict(torch.load(model_path, map_location=device))
+    
     
     return model, converter
 
